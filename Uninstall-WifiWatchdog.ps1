@@ -21,7 +21,7 @@ if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
 }
 
 Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" |
-    Where-Object { $_.CommandLine -like '*WifiWatchdog.ps1*' } |
+    Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -match '[\\"\s]WifiWatchdog\.ps1' } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; Write-Host "Stopped PID $($_.ProcessId)." }
 
 if (Test-Path $InstallDir) { Remove-Item -Path $InstallDir -Recurse -Force; Write-Host "Removed $InstallDir." }

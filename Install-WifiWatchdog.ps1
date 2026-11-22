@@ -57,8 +57,9 @@ Write-Host "Copied watchdog to $target"
 if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
     Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 }
+# Match the watchdog itself only: not this installer (Install-WifiWatchdog.ps1) and not our own process.
 Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" |
-    Where-Object { $_.CommandLine -like '*WifiWatchdog.ps1*' } |
+    Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -match '[\\"\s]WifiWatchdog\.ps1' } |
     ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
 $argList = @(

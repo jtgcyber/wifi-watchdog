@@ -4,23 +4,71 @@ A small PowerShell watchdog that keeps a **headless Windows PC** on WiFi. It was
 written for an astrophotography PC that sits outside with no screen, where going
 out to replug the USB WiFi dongle at 2am in -5°C is not an option.
 
-## The problem
+## Background: the problem this solves
 
-Some USB WiFi adapters (Realtek-based ones especially) occasionally lock up. In the
-WLAN AutoConfig event log it looks like this:
+### The setup
+
+The PC is a small fanless mini PC (Celeron N5095, Windows 11) that runs an
+astrophotography rig in the garden: a USB 3 cooled colour camera, a USB 2 guide
+camera, and the mount on a USB-serial cable, all on the same USB 3 controller.
+N.I.N.A. runs the imaging sequence and PHD2 does the guiding. It has no screen,
+keyboard or Ethernet. Everything is done over Remote Desktop, through a TP-Link
+USB WiFi dongle with a Realtek chipset.
+
+So WiFi is the only way in. If it drops and stays down, the imaging carries on,
+but I can't see it, check focus, fix a guiding problem or end the session. The
+only fix is to go outside and replug the dongle.
+
+### Round one: constant drops (fixed)
+
+The first problem was the dongle dropping every 30-60 seconds, about 130 times in
+three days. The WLAN AutoConfig log showed *"The network is disconnected by the
+driver"*, then a failed reassociation (*"The operation was cancelled"*), then a
+reconnect a few seconds later. Signal was fine (around -60 dBm on 5 GHz, with a
+nearly empty channel), so I suspected roaming between access points and spent a
+while on that.
+
+The real pattern was in the timestamps. The drops only happened while the imaging
+gear was running, and they started 37 seconds after the cameras connected. The dongle
+was sitting right next to the USB 3 camera and its cables. USB 3 is a well-known
+source of 2.4/5 GHz interference. Moving the dongle away on an extension took it
+from 15-48 drops an hour to **zero across a full 12-hour imaging night**.
+
+### Round two: the drop that never recovers (this script)
+
+Even with the noise fixed, the dongle still drops occasionally. Usually Windows
+reconnects within 10-50 seconds and nobody notices. But sometimes it doesn't
+reconnect at all. Here is the WLAN AutoConfig log from one of those times:
 
 ```
-10:50:38  Network Disconnected            (no normal "disconnected" event)
-10:50:43  8000  started a connection to a wireless network
-10:50:51  8002  failed to connect: The specific network is not available
-          ...nothing for 33 minutes...
-11:23:32  8000  started a connection      (dongle unplugged and replugged)
-11:23:33  8001  successfully connected
+10:49-10:50  security stopped/started repeatedly (link flapping)
+10:50:38     Network Disconnected     (no normal "disconnected by the driver" event)
+10:50:43     8000  started a connection to a wireless network
+10:50:51     8002  failed to connect: "The specific network is not available"
+             ...nothing at all for 33 minutes, not even a retry...
+11:23:32     8000  started a connection   (dongle unplugged and replugged)
+11:23:33     8001  successfully connected
 ```
 
-The router was fine. The adapter's radio stopped seeing it, and Windows made one
-attempt and then gave up. Replugging re-initialises the dongle. This script does
-the software equivalent automatically.
+The access point was up and other devices were fine. *"The specific network is not
+available"* means the adapter's own scan couldn't see it: the dongle's radio had
+locked up. Windows made one attempt and then gave up, and nothing recovers it short of
+re-initialising the hardware. Replugging does that, but at 2am in -5°C that is
+not a fix.
+
+That has two consequences for the design:
+
+1. **Just running `netsh wlan connect` isn't enough.** If the radio is wedged, a
+   reconnect request fails the same way Windows' own attempt did. The watchdog has
+   to be able to reset the adapter and, as a last step, restart the USB device, which
+   is the software version of a replug.
+2. **It has to keep trying, forever, unattended.** It must run with nobody logged in,
+   survive reboots, and never give up. It also must never do anything that would wreck
+   an imaging session in progress, such as rebooting the PC or resetting the USB
+   controller the cameras share.
+
+Off-the-shelf "WiFi reconnect" tools mostly do the first thing only: a reconnect or an
+internet check, running in the logged-in user's session. So I wrote this instead.
 
 ## What it does
 
